@@ -9,6 +9,14 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
 }
 
 $student_name = $_SESSION['full_name'];
+$user_id = $_SESSION['user_id'];
+
+// Function to check if a paper is favorited
+function isFavorited($pdo, $user_id, $paper_id) {
+    $stmt = $pdo->prepare("SELECT id FROM favorites WHERE user_id = ? AND paper_id = ?");
+    $stmt->execute([$user_id, $paper_id]);
+    return $stmt->fetch() ? true : false;
+}
 
 /* Fetch subjects */
 $stmt = $pdo->query("SELECT id, subject_name FROM subjects ORDER BY subject_name");
@@ -339,12 +347,30 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         transition: transform 0.3s, box-shadow 0.3s;
         border: 1px solid #eee;
+        position: relative;
     }
 
     .paper-card:hover {
         transform: translateY(-5px);
         box-shadow: 0 8px 25px rgba(0,135,81,0.15);
         border-color: #008751;
+    }
+
+    .favorite-badge {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: #ffc107;
+        color: #333;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
 
     .paper-preview {
@@ -415,6 +441,7 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         color: #333;
         margin-bottom: 8px;
         font-size: 1.2rem;
+        padding-right: 60px;
     }
 
     .paper-subject {
@@ -440,6 +467,7 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
     .paper-actions {
         display: flex;
         gap: 10px;
+        flex-wrap: wrap;
     }
 
     .btn {
@@ -455,6 +483,7 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         justify-content: center;
         gap: 5px;
         transition: all 0.3s;
+        min-width: 100px;
     }
 
     .btn-view {
@@ -474,6 +503,22 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
 
     .btn-download:hover {
         background: #e8f5e9;
+    }
+
+    .btn-favorite {
+        background: white;
+        color: #ffc107;
+        border: 1px solid #ffc107;
+    }
+
+    .btn-favorite:hover {
+        background: #ffc107;
+        color: white;
+    }
+
+    .btn-favorite.active {
+        background: #ffc107;
+        color: white;
     }
 
     /* PDF Options Modal */
@@ -640,6 +685,34 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         background: #00663d;
     }
 
+    /* Download notification */
+    .download-notification {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #008751;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        display: none;
+        align-items: center;
+        gap: 10px;
+        z-index: 3000;
+        animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
     /* Empty State */
     .empty-state {
         text-align: center;
@@ -732,10 +805,31 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
             margin: 30% auto;
             padding: 20px;
         }
+        
+        .download-notification {
+            bottom: 10px;
+            right: 10px;
+            left: 10px;
+            width: auto;
+        }
+        
+        .paper-actions {
+            flex-direction: column;
+        }
+        
+        .btn {
+            width: 100%;
+        }
     }
 </style>
 </head>
 <body>
+
+<!-- Download Notification -->
+<div id="downloadNotification" class="download-notification">
+    <span>✅</span>
+    <span id="notificationMessage">Download tracked successfully!</span>
+</div>
 
 <!-- Navigation Bar -->
 <div class="navbar">
@@ -814,22 +908,21 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
             <!-- Papers Grid -->
             <div class="papers-grid">
                 <?php foreach($papers as $index => $paper): ?>
-     <?php
-    // The file_path already contains the timestamp_originalname format
-    // Example: 1772723861_Lecture-Notes-Chapter1.pdf
-    $file = "../uploads/past_papers/" . $paper['file_path'];
-    
-    // Get just the filename without path for display
-    $display_filename = basename($paper['file_path']);
-    
-    // Check if file exists
-    $file_exists = file_exists($file);
-    
-    $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-    $is_pdf = $extension == "pdf";
-    ?>
+                    <?php
+                    $file = "../uploads/past_papers/" . $paper['file_path'];
+                    $full_url = (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . dirname($_SERVER['SCRIPT_NAME']) . '/' . $file;
+                    $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                    $is_pdf = $extension == "pdf";
+                    $is_favorited = isFavorited($pdo, $user_id, $paper['id']);
+                    ?>
                     
-                    <div class="paper-card">
+                    <div class="paper-card" id="paper-<?php echo $paper['id']; ?>">
+                        <?php if($is_favorited): ?>
+                            <div class="favorite-badge">
+                                <span>⭐</span> Saved
+                            </div>
+                        <?php endif; ?>
+                        
                         <div class="paper-preview" onclick="handlePaperClick('<?php echo $file; ?>', <?php echo $is_pdf ? 'true' : 'false'; ?>)">
                             <?php if($is_pdf): ?>
                                 <div class="pdf-preview">
@@ -861,19 +954,31 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
                             <div class="paper-actions">
                                 <?php if($is_pdf): ?>
                                     <button onclick="showPDFOptions('<?php echo $file; ?>')" class="btn btn-view">
-                                        <span>👁️</span> View PDF
+                                        <span>👁️</span> View
                                     </button>
                                 <?php else: ?>
                                     <button onclick="openImageModal('<?php echo $file; ?>')" class="btn btn-view">
-                                        <span>👁️</span> View Image
+                                        <span>👁️</span> View
                                     </button>
                                 <?php endif; ?>
                                 
-                                <a href="<?php echo $file; ?>" download class="btn btn-download">
+                                <a href="<?php echo $file; ?>" download class="btn btn-download" onclick="trackDownload(<?php echo $paper['id']; ?>); return true;">
                                     <span>⬇️</span> Download
                                 </a>
+                                
+                                <button onclick="toggleFavorite(<?php echo $paper['id']; ?>, this)" 
+                                        class="btn btn-favorite <?php echo $is_favorited ? 'active' : ''; ?>">
+                                    <span>⭐</span> <?php echo $is_favorited ? 'Saved' : 'Save'; ?>
+                                </button>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Hidden data for modal -->
+                    <div style="display: none;">
+                        <div id="paper-file-<?php echo $index; ?>"><?php echo $file; ?></div>
+                        <div id="paper-type-<?php echo $index; ?>"><?php echo $is_pdf ? 'pdf' : 'image'; ?></div>
+                        <div id="paper-title-<?php echo $index; ?>"><?php echo htmlspecialchars($paper['paper_title']); ?></div>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -937,7 +1042,7 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
 <div id="imageModal" class="image-modal">
     <span class="close-image-modal" onclick="closeImageModal()">&times;</span>
     <img class="image-modal-content" id="modalImage">
-    <a href="#" id="modalDownloadLink" class="image-modal-download" download>
+    <a href="#" id="modalDownloadLink" class="image-modal-download" download onclick="trackDownloadFromModal();">
         <span>⬇️</span> Download
     </a>
 </div>
@@ -949,6 +1054,104 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
 
 <script>
 let currentPDFFile = '';
+let currentPaperId = null;
+
+// Show notification
+function showNotification(message, isSuccess = true) {
+    const notification = document.getElementById('downloadNotification');
+    const messageSpan = document.getElementById('notificationMessage');
+    
+    messageSpan.textContent = message;
+    notification.style.backgroundColor = isSuccess ? '#008751' : '#dc3545';
+    notification.style.display = 'flex';
+    
+    setTimeout(() => {
+        notification.style.display = 'none';
+    }, 3000);
+}
+
+// Track download
+function trackDownload(paperId) {
+    currentPaperId = paperId;
+    
+    fetch('../track_download.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'paper_id=' + paperId
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Paper added to your downloads!');
+        } else {
+            showNotification('Error tracking download', false);
+        }
+    })
+    .catch(error => {
+        console.error('Error tracking download:', error);
+        showNotification('Error tracking download', false);
+    });
+    
+    return true; // Allow the download to proceed
+}
+
+// Track download from modal
+function trackDownloadFromModal() {
+    if (currentPaperId) {
+        trackDownload(currentPaperId);
+    }
+    return true;
+}
+
+// Toggle favorite
+function toggleFavorite(paperId, button) {
+    fetch('../toggle_favorite.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'paper_id=' + paperId
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (data.action === 'added') {
+                button.classList.add('active');
+                button.innerHTML = '<span>⭐</span> Saved';
+                
+                // Add favorite badge if not exists
+                const paperCard = document.getElementById('paper-' + paperId);
+                if (!paperCard.querySelector('.favorite-badge')) {
+                    const badge = document.createElement('div');
+                    badge.className = 'favorite-badge';
+                    badge.innerHTML = '<span>⭐</span> Saved';
+                    paperCard.insertBefore(badge, paperCard.firstChild);
+                }
+                
+                showNotification('Added to favorites!');
+            } else {
+                button.classList.remove('active');
+                button.innerHTML = '<span>⭐</span> Save';
+                
+                // Remove favorite badge
+                const paperCard = document.getElementById('paper-' + paperId);
+                const badge = paperCard.querySelector('.favorite-badge');
+                if (badge) {
+                    badge.remove();
+                }
+                
+                showNotification('Removed from favorites');
+            }
+        } else {
+            showNotification('Error toggling favorite', false);
+        }
+    })
+    .catch(error => {
+        showNotification('Error toggling favorite', false);
+    });
+}
 
 // Handle paper click based on type
 function handlePaperClick(file, isPDF) {
@@ -964,10 +1167,10 @@ function showPDFOptions(file) {
     currentPDFFile = file;
     
     // Display the constructed URL for debugging
-    const baseUrl = window.location.origin + window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
-    let pdfPath = file.replace('../', '');
-    const fullURL = baseUrl + pdfPath;
-    document.getElementById('pdfUrlDisplay').innerHTML = '<strong>PDF URL:</strong> ' + fullURL;
+    const fullURL = getPDFUrl();
+    
+    document.getElementById('pdfUrlDisplay').innerHTML = 
+        '<strong>PDF URL:</strong> ' + fullURL;
     
     document.getElementById('pdfOptionsModal').style.display = 'block';
     document.body.style.overflow = 'hidden';
@@ -981,9 +1184,7 @@ function closePDFOptions() {
 
 // Get the correct base URL for the application
 function getBaseUrl() {
-    // Get the current URL path
     const path = window.location.pathname;
-    // Remove '/student/view_papers.php' to get the root
     const rootPath = path.substring(0, path.indexOf('/student/'));
     return window.location.origin + rootPath;
 }
@@ -992,10 +1193,7 @@ function getBaseUrl() {
 function getPDFUrl() {
     if (!currentPDFFile) return '';
     
-    // Remove '../' from the path
     let pdfPath = currentPDFFile.replace('../', '');
-    
-    // Construct the full URL
     const baseUrl = getBaseUrl();
     return baseUrl + '/' + pdfPath;
 }
@@ -1005,13 +1203,8 @@ function openPDFWithGoogle() {
     if (!currentPDFFile) return;
     
     const fullURL = getPDFUrl();
-    
-    // Encode the URL for Google Docs Viewer
     const encodedUrl = encodeURIComponent(fullURL);
-    
-    // Open with Google Docs Viewer
     window.open(`https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`, '_blank');
-    
     closePDFOptions();
 }
 
@@ -1020,10 +1213,7 @@ function openPDFWithGoogleAlt() {
     if (!currentPDFFile) return;
     
     const fullURL = getPDFUrl();
-    
-    // Alternative Google Docs URL format
     window.open(`https://docs.google.com/viewerng/viewer?url=${encodeURIComponent(fullURL)}&embedded=true`, '_blank');
-    
     closePDFOptions();
 }
 
@@ -1046,8 +1236,6 @@ function testPDFUrl() {
     if (!currentPDFFile) return;
     
     const fullURL = getPDFUrl();
-    
-    // Open in new tab to test
     window.open(fullURL, '_blank');
 }
 
@@ -1070,7 +1258,7 @@ function closeImageModal() {
     document.body.style.overflow = 'auto';
 }
 
-// Close image modal when clicking outside
+// Close modals when clicking outside
 window.onclick = function(event) {
     const imageModal = document.getElementById('imageModal');
     const pdfModal = document.getElementById('pdfOptionsModal');
@@ -1098,45 +1286,32 @@ const dropdownItems = document.querySelectorAll('.dropdown-item');
 const dropdownLabel = document.getElementById('dropdownLabel');
 const subjectIdInput = document.getElementById('subjectIdInput');
 
-// Toggle dropdown menu
 dropdownBtn.addEventListener('click', function(e) {
     e.stopPropagation();
     dropdownBtn.classList.toggle('open');
     dropdownMenu.classList.toggle('open');
 });
 
-// Handle dropdown item selection
 dropdownItems.forEach(item => {
-    // Highlight currently selected item on page load
     if (new URLSearchParams(window.location.search).get('subject_id') === item.dataset.value && item.dataset.value !== '') {
         item.classList.add('selected');
         dropdownLabel.textContent = item.textContent;
     }
 
-    // Handle click on dropdown items
     item.addEventListener('click', function(e) {
         e.stopPropagation();
         
-        // Remove selected class from all items
         dropdownItems.forEach(i => i.classList.remove('selected'));
-        
-        // Add selected class to clicked item
         this.classList.add('selected');
         dropdownLabel.textContent = this.textContent;
-        
-        // Update input and submit form
         subjectIdInput.value = this.dataset.value;
         
-        // Close dropdown and submit
         dropdownBtn.classList.remove('open');
         dropdownMenu.classList.remove('open');
-        
-        // Submit the form
         document.getElementById('subjectForm').submit();
     });
 });
 
-// Close dropdown when clicking outside
 document.addEventListener('click', function(e) {
     if (!e.target.closest('.custom-dropdown')) {
         dropdownBtn.classList.remove('open');
@@ -1144,8 +1319,6 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Auto-submit form when dropdown changes (already have onchange)
-// Add smooth scroll to papers when loaded
 if (window.location.href.includes('subject_id')) {
     setTimeout(() => {
         document.querySelector('.results-header')?.scrollIntoView({ 

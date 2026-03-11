@@ -18,6 +18,11 @@ $total_subjects = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 $stmt = $pdo->query("SELECT COUNT(*) as total FROM past_papers");
 $total_papers = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
+// Get user's download count for the badge
+$stmt = $pdo->prepare("SELECT COUNT(*) as total FROM downloads WHERE user_id = ?");
+$stmt->execute([$student_id]);
+$download_count = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
 // Get recent papers (last 5 uploaded)
 $stmt = $pdo->prepare("
     SELECT past_papers.*, subjects.subject_name 
@@ -285,6 +290,7 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             gap: 15px;
             transition: all 0.3s;
             border: 1px solid #eee;
+            position: relative;
         }
 
         .quick-link:hover {
@@ -313,6 +319,19 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
         .quick-link-content small {
             color: #888;
             font-size: 0.8rem;
+        }
+
+        .download-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ffc107;
+            color: #333;
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 20px;
+            border: 2px solid white;
         }
 
         /* Recent Papers Table */
@@ -507,10 +526,10 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
 
             <div class="stat-card">
-                <div class="stat-icon">⏱️</div>
+                <div class="stat-icon">📥</div>
                 <div class="stat-content">
-                    <h3>Ready to Study</h3>
-                    <div class="stat-number">✨</div>
+                    <h3>Your Downloads</h3>
+                    <div class="stat-number"><?php echo $download_count; ?></div>
                 </div>
             </div>
         </div>
@@ -559,6 +578,9 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <h4>My Downloads</h4>
                     <small>Papers you've accessed</small>
                 </div>
+                <?php if ($download_count > 0): ?>
+                    <span class="download-badge"><?php echo $download_count; ?></span>
+                <?php endif; ?>
             </a>
 
             <a href="favorites.php" class="quick-link">
