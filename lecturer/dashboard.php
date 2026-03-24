@@ -10,39 +10,51 @@ if (!isset($_SESSION["user_id"]) || $_SESSION["role"] != "lecturer") {
 
 $lecturer_id = $_SESSION["user_id"];
 $lecturer_name = $_SESSION["full_name"];
+$school_id = $_SESSION["school_id"] ?? 1; // Get school_id from session
 
-// Get total subjects count for this lecturer
-$stmt = $pdo->prepare("SELECT COUNT(*) as total_subjects FROM subjects WHERE lecturer_id = ?");
-$stmt->execute([$lecturer_id]);
+// Get school name for display
+$stmt = $pdo->prepare("SELECT school_name FROM schools WHERE id = ?");
+$stmt->execute([$school_id]);
+$school_name = $stmt->fetchColumn();
+
+// Get total subjects count for this lecturer (filtered by school)
+$stmt = $pdo->prepare("
+    SELECT COUNT(*) as total_subjects 
+    FROM subjects 
+    WHERE lecturer_id = ? AND school_id = ?
+");
+$stmt->execute([$lecturer_id, $school_id]);
 $total_subjects = $stmt->fetch(PDO::FETCH_ASSOC)['total_subjects'] ?? 0;
 
-// Get total papers uploaded
+// Get total papers uploaded (filtered by school)
 $stmt = $pdo->prepare("
     SELECT COUNT(*) as total_papers 
     FROM past_papers 
     JOIN subjects ON past_papers.subject_id = subjects.id
-    WHERE subjects.lecturer_id = ?
+    WHERE subjects.lecturer_id = ? 
+    AND past_papers.school_id = ?
 ");
-$stmt->execute([$lecturer_id]);
+$stmt->execute([$lecturer_id, $school_id]);
 $total_papers = $stmt->fetch(PDO::FETCH_ASSOC)['total_papers'] ?? 0;
 
-// Get recent activity (last 5 papers)
+// Get recent activity (last 5 papers) filtered by school
 $stmt = $pdo->prepare("
     SELECT past_papers.*, subjects.subject_name 
     FROM past_papers 
     JOIN subjects ON past_papers.subject_id = subjects.id
-    WHERE subjects.lecturer_id = ?
+    WHERE subjects.lecturer_id = ? 
+    AND past_papers.school_id = ?
     ORDER BY past_papers.id DESC 
     LIMIT 5
 ");
-$stmt->execute([$lecturer_id]);
+$stmt->execute([$lecturer_id, $school_id]);
 $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Lecturer Dashboard - KAFU Exam Revision</title>
+    <title>Lecturer Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         * {
@@ -73,6 +85,7 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
         }
 
         .logo span {
@@ -80,6 +93,14 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             padding: 5px 10px;
             border-radius: 20px;
             font-size: 0.8rem;
+        }
+
+        .school-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin-left: 10px;
         }
 
         .user-menu {
@@ -136,9 +157,23 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             color: #008751;
         }
 
+        .welcome-section .school-info {
+            color: #666;
+            font-size: 1rem;
+            margin-top: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .welcome-section .school-info i {
+            color: #008751;
+        }
+
         .welcome-section p {
             color: #666;
             font-size: 1.1rem;
+            margin-top: 10px;
         }
 
         /* Stats Cards */
@@ -360,6 +395,16 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             margin-top: 10px;
         }
 
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 50px;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9rem;
+            border-top: 1px solid #ddd;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .navbar {
@@ -398,6 +443,9 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="logo">
             📚 Exam Revision System
             <span>Lecturer Portal</span>
+            <?php if ($school_name): ?>
+                <span class="school-badge"><?php echo htmlspecialchars($school_name); ?></span>
+            <?php endif; ?>
         </div>
         <div class="user-menu">
             <span class="user-name">👤 <?php echo htmlspecialchars($lecturer_name); ?></span>
@@ -409,6 +457,11 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <!-- Welcome Section -->
         <div class="welcome-section">
             <h1>Welcome back, <span><?php echo htmlspecialchars(explode(' ', $lecturer_name)[0]); ?></span>!</h1>
+            <?php if ($school_name): ?>
+                <div class="school-info">
+                    <i>🏫</i> <?php echo htmlspecialchars($school_name); ?>
+                </div>
+            <?php endif; ?>
             <p>Manage your subjects and past papers from your dashboard.</p>
         </div>
 
@@ -417,7 +470,7 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="stat-card">
                 <div class="stat-icon">📚</div>
                 <div class="stat-content">
-                    <h3>Total Subjects</h3>
+                    <h3>Your Subjects</h3>
                     <div class="stat-number"><?php echo $total_subjects; ?></div>
                     <div class="stat-label">Active subjects</div>
                 </div>
@@ -426,7 +479,7 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="stat-card">
                 <div class="stat-icon">📄</div>
                 <div class="stat-content">
-                    <h3>Past Papers</h3>
+                    <h3>Your Papers</h3>
                     <div class="stat-number"><?php echo $total_papers; ?></div>
                     <div class="stat-label">Uploaded documents</div>
                 </div>
@@ -492,6 +545,7 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <thead>
                         <tr>
                             <th>Subject</th>
+                            <th>Paper Title</th>
                             <th>File Name</th>
                             <th>Upload Date</th>
                             <th>Action</th>
@@ -501,7 +555,8 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <?php foreach ($recent_papers as $paper): ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($paper['subject_name']); ?></td>
-                                <td><?php echo htmlspecialchars($paper['file_name'] ?? $paper['file_path']); ?></td>
+                                <td><?php echo htmlspecialchars($paper['paper_title']); ?></td>
+                                <td><?php echo htmlspecialchars(basename($paper['file_path'])); ?></td>
                                 <td><?php echo isset($paper['uploaded_at']) ? date('M d, Y', strtotime($paper['uploaded_at'])) : 'Recently'; ?></td>
                                 <td>
                                     <a href="../uploads/past_papers/<?php echo htmlspecialchars($paper['file_path']); ?>" 
@@ -518,19 +573,24 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <div class="empty-state">
                     <div style="font-size: 48px; margin-bottom: 15px;">📭</div>
                     <h3 style="color: #666; margin-bottom: 10px;">No Papers Yet</h3>
-                    <p style="color: #888;">Start by adding subjects and uploading past papers.</p>
+                    <p style="color: #888;">Start by adding subjects and uploading past papers for <?php echo htmlspecialchars($school_name); ?>.</p>
                     <a href="upload_paper.php" style="display: inline-block; margin-top: 15px; padding: 10px 25px; background: #008751; color: white; text-decoration: none; border-radius: 25px;">Upload Your First Paper</a>
                 </div>
             <?php endif; ?>
         </div>
     </div>
 
-    <!-- Quick Tips (Optional) -->
+    <!-- Quick Tips -->
     <div style="max-width: 1200px; margin: 20px auto; padding: 0 20px;">
         <div style="background: #fff3cd; border-left: 4px solid #008751; padding: 15px; border-radius: 4px;">
             <strong style="color: #008751;">💡 Pro Tip:</strong> 
-            <span style="color: #666;">Regularly upload past papers to help students prepare better. Organize them by subject for easy access.</span>
+            <span style="color: #666;">Regularly upload past papers to help <?php echo htmlspecialchars($school_name); ?> students prepare better. Organize them by subject for easy access.</span>
         </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p>© <?php echo date('Y'); ?> Exam Revision System. All rights reserved.</p>
     </div>
 </body>
 </html>

@@ -1,6 +1,12 @@
 <?php
-session_start();
-require_once '../config/database.php';
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+require_once(__DIR__ . '/../config/database.php');
 
 if (!isset($_SESSION["user_id"]) || $_SESSION["role"] != "student") {
     header("Location: ../auth/login.php");
@@ -9,13 +15,21 @@ if (!isset($_SESSION["user_id"]) || $_SESSION["role"] != "student") {
 
 $student_id = $_SESSION["user_id"];
 $student_name = $_SESSION["full_name"];
+$school_id = $_SESSION["school_id"] ?? 1; // Get school_id from session, default to 1
 
-// Get available subjects count
-$stmt = $pdo->query("SELECT COUNT(*) as total FROM subjects");
+// Get school name for display
+$stmt = $pdo->prepare("SELECT school_name FROM schools WHERE id = ?");
+$stmt->execute([$school_id]);
+$school_name = $stmt->fetchColumn();
+
+// Get available subjects count for this school
+$stmt = $pdo->prepare("SELECT COUNT(*) as total FROM subjects WHERE school_id = ?");
+$stmt->execute([$school_id]);
 $total_subjects = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-// Get total papers available
-$stmt = $pdo->query("SELECT COUNT(*) as total FROM past_papers");
+// Get total papers available for this school
+$stmt = $pdo->prepare("SELECT COUNT(*) as total FROM past_papers WHERE school_id = ?");
+$stmt->execute([$school_id]);
 $total_papers = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
 // Get user's download count for the badge
@@ -23,15 +37,16 @@ $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM downloads WHERE user_id = ?
 $stmt->execute([$student_id]);
 $download_count = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-// Get recent papers (last 5 uploaded)
+// Get recent papers (last 5 uploaded) for this school
 $stmt = $pdo->prepare("
     SELECT past_papers.*, subjects.subject_name 
     FROM past_papers 
     JOIN subjects ON past_papers.subject_id = subjects.id 
+    WHERE past_papers.school_id = ?
     ORDER BY past_papers.id DESC 
     LIMIT 5
 ");
-$stmt->execute();
+$stmt->execute([$school_id]);
 $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
@@ -105,6 +120,15 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             background: #a71d2a;
         }
 
+        /* School Badge */
+        .school-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin-left: 10px;
+        }
+
         /* Main Container */
         .container {
             max-width: 1200px;
@@ -132,9 +156,23 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             color: #008751;
         }
 
+        .welcome-section .school-info {
+            color: #666;
+            font-size: 1rem;
+            margin-top: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .welcome-section .school-info i {
+            color: #008751;
+        }
+
         .welcome-section p {
             color: #666;
             font-size: 1.1rem;
+            margin-top: 10px;
         }
 
         /* Stats Cards */
@@ -493,6 +531,9 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="logo">
             📚 Exam Revision System
             <span>Student Portal</span>
+            <?php if ($school_name): ?>
+                <span class="school-badge"><?php echo htmlspecialchars($school_name); ?></span>
+            <?php endif; ?>
         </div>
         <div class="user-menu">
             <span class="user-name">👤 <?php echo htmlspecialchars($student_name); ?></span>
@@ -504,6 +545,11 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <!-- Welcome Section -->
         <div class="welcome-section">
             <h1>Welcome, <span><?php echo htmlspecialchars(explode(' ', $student_name)[0]); ?></span>!</h1>
+            <?php if ($school_name): ?>
+                <div class="school-info">
+                    <i>🏫</i> <?php echo htmlspecialchars($school_name); ?>
+                </div>
+            <?php endif; ?>
             <p>Access past exam papers and revision materials for your courses.</p>
         </div>
 
@@ -644,7 +690,7 @@ $recent_papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <div style="text-align: center; padding: 40px; color: #666;">
                     <div style="font-size: 48px; margin-bottom: 15px;">📭</div>
                     <h3 style="margin-bottom: 10px;">No Papers Available</h3>
-                    <p>Check back later for uploaded past papers.</p>
+                    <p>Check back later for uploaded past papers from your school.</p>
                 </div>
             <?php endif; ?>
         </div>

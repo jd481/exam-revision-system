@@ -10,6 +10,12 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
 
 $student_name = $_SESSION['full_name'];
 $user_id = $_SESSION['user_id'];
+$school_id = $_SESSION['school_id'] ?? 1; // Get school_id from session
+
+// Get school name for display
+$stmt = $pdo->prepare("SELECT school_name FROM schools WHERE id = ?");
+$stmt->execute([$school_id]);
+$school_name = $stmt->fetchColumn();
 
 // Function to check if a paper is favorited
 function isFavorited($pdo, $user_id, $paper_id) {
@@ -18,15 +24,16 @@ function isFavorited($pdo, $user_id, $paper_id) {
     return $stmt->fetch() ? true : false;
 }
 
-/* Fetch subjects */
-$stmt = $pdo->query("SELECT id, subject_name FROM subjects ORDER BY subject_name");
+/* Fetch subjects for this school only */
+$stmt = $pdo->prepare("SELECT id, subject_name FROM subjects WHERE school_id = ? ORDER BY subject_name");
+$stmt->execute([$school_id]);
 $subjects = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-/* Get paper count for each subject */
+/* Get paper count for each subject (filtered by school) */
 $subject_counts = [];
 foreach ($subjects as $subject) {
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM past_papers WHERE subject_id = ?");
-    $stmt->execute([$subject['id']]);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM past_papers WHERE subject_id = ? AND school_id = ?");
+    $stmt->execute([$subject['id'], $school_id]);
     $subject_counts[$subject['id']] = $stmt->fetchColumn();
 }
 
@@ -37,21 +44,24 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
 
     $subject_id = $_GET['subject_id'];
 
-    // Get subject name
-    $stmt = $pdo->prepare("SELECT subject_name FROM subjects WHERE id = ?");
-    $stmt->execute([$subject_id]);
+    // Verify subject belongs to user's school
+    $stmt = $pdo->prepare("SELECT subject_name FROM subjects WHERE id = ? AND school_id = ?");
+    $stmt->execute([$subject_id, $school_id]);
     $selected_subject_name = $stmt->fetchColumn();
-
-    $stmt = $pdo->prepare("
-        SELECT past_papers.*, subjects.subject_name
-        FROM past_papers
-        JOIN subjects ON past_papers.subject_id = subjects.id
-        WHERE subject_id = ?
-        ORDER BY past_papers.id DESC
-    ");
-
-    $stmt->execute([$subject_id]);
-    $papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    if ($selected_subject_name) {
+        // Get papers for this subject, filtered by school
+        $stmt = $pdo->prepare("
+            SELECT past_papers.*, subjects.subject_name
+            FROM past_papers
+            JOIN subjects ON past_papers.subject_id = subjects.id
+            WHERE past_papers.subject_id = ? 
+            AND past_papers.school_id = ?
+            ORDER BY past_papers.id DESC
+        ");
+        $stmt->execute([$subject_id, $school_id]);
+        $papers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 ?>
 
@@ -98,6 +108,14 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         font-size: 0.8rem;
     }
 
+    .school-badge {
+        background: rgba(255,255,255,0.2);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        margin-left: 10px;
+    }
+
     .user-menu {
         display: flex;
         align-items: center;
@@ -140,12 +158,27 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         margin-bottom: 25px;
         box-shadow: 0 4px 15px rgba(0,135,81,0.1);
         border-left: 5px solid #008751;
+        position: relative;
     }
 
     .page-header h1 {
         color: #008751;
         font-size: 1.8rem;
         margin-bottom: 10px;
+    }
+
+    .page-header .school-info {
+        position: absolute;
+        top: 25px;
+        right: 25px;
+        background: #e8f5e9;
+        color: #008751;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 5px;
     }
 
     .page-header p {
@@ -354,6 +387,22 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         transform: translateY(-5px);
         box-shadow: 0 8px 25px rgba(0,135,81,0.15);
         border-color: #008751;
+    }
+
+    .school-indicator {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: #e8f5e9;
+        color: #008751;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: bold;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 5px;
     }
 
     .favorite-badge {
@@ -820,6 +869,12 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         .btn {
             width: 100%;
         }
+
+        .page-header .school-info {
+            position: static;
+            margin-top: 10px;
+            display: inline-block;
+        }
     }
 </style>
 </head>
@@ -836,6 +891,9 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
     <div class="logo">
         📚 Exam Revision System
         <span>Student Portal</span>
+        <?php if ($school_name): ?>
+            <span class="school-badge"><?php echo htmlspecialchars($school_name); ?></span>
+        <?php endif; ?>
     </div>
     <div class="user-menu">
         <span class="user-name">👤 <?php echo htmlspecialchars($student_name); ?></span>
@@ -847,6 +905,11 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
     <!-- Page Header -->
     <div class="page-header">
         <h1>📑 View Past Papers</h1>
+        <?php if ($school_name): ?>
+            <div class="school-info">
+                <span>🏫</span> <?php echo htmlspecialchars($school_name); ?>
+            </div>
+        <?php endif; ?>
         <p>Browse and view past exam papers by subject</p>
     </div>
 
@@ -877,6 +940,7 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         </form>
 
         <!-- Quick Subject Grid -->
+        <?php if (count($subjects) > 0): ?>
         <div class="subjects-grid">
             <?php foreach(array_slice($subjects, 0, 6) as $subject): ?>
                 <a href="?subject_id=<?php echo $subject['id']; ?>" 
@@ -888,6 +952,7 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
                 </a>
             <?php endforeach; ?>
         </div>
+        <?php endif; ?>
     </div>
 
     <!-- Papers Display -->
@@ -988,7 +1053,7 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
             <div class="empty-state">
                 <div class="icon">📭</div>
                 <h3>No Papers Available</h3>
-                <p>There are currently no past papers uploaded for <?php echo htmlspecialchars($selected_subject_name); ?>.</p>
+                <p>There are currently no past papers uploaded for <?php echo htmlspecialchars($selected_subject_name); ?> at <?php echo htmlspecialchars($school_name); ?>.</p>
                 <a href="view_papers.php" class="browse-btn">Browse Other Subjects</a>
             </div>
         <?php endif; ?>
@@ -998,7 +1063,7 @@ if (isset($_GET['subject_id']) && !empty($_GET['subject_id'])) {
         <div class="empty-state">
             <div class="icon">👆</div>
             <h3>Select a Subject</h3>
-            <p>Choose a subject from the dropdown above to view available past papers.</p>
+            <p>Choose a subject from the dropdown above to view available past papers from your school.</p>
         </div>
     <?php endif; ?>
 
